@@ -8,6 +8,12 @@ The only required software dependency is the [Flox CLI](https://flox.dev/get). S
 
 ## Installed Packages
 
+Software packages are made available within the activated Flox environment, which runs in a subshell and inherits the local user’s permissions.
+
+Packages are sourced from the Flox Catalog, which uses [Nixpkgs](https://github.com/NixOS/nixpkgs) as its upstream. Each package is installed immutably in the [Nix store](https://nix.dev/manual/nix/2.24/store/) (`/nix/store`) under a [content-addressed](https://nix.dev/manual/nix/2.24/glossary#gloss-content-address) [store path](https://nix.dev/manual/nix/2.24/glossary#gloss-store-path) derived from its build inputs. Because package definitions resolve deterministically, identical inputs always produce identical outputs, allowing environments to be reliably instantiated across systems.
+
+Flox environments declare dependencies in TOML and install packages immutably in the Nix store, with paths derived from their build inputs. Content-addressing prevents conflicts, allowing multiple versions of the same dependency to coexist. Because environments are instantiated from a declarative specification rather than system state, they evaluate the same way across local development, CI, and production.
+
 - **1Password CLI** (`op`): Used for secure credential management
 - **AWS CLI 2** (`aws`): For interacting with AWS services
 - **GitHub CLI** (`gh`): For interacting with GitHub repositories

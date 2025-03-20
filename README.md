@@ -40,7 +40,7 @@ Packages defined in this environment include:
 - **Bat**: A cat clone with syntax highlighting and Git integration
 - **Curl**: Command-line tool for transferring data with URLs
 
-You can run **`flox edit`** at any time to view and/or alter the Flox environment's declarative configuration. You can also install packages imperatively using **`flox install <package_name>`**.
+You can run **`flox edit`** at any time to view and/or alter this environment's declarative configuration. You can also install packages imperatively using **`flox install <package_name>`**.
 
 ## Security Benefits ✅
 

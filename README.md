@@ -43,10 +43,10 @@ Many popular CLI tools store credentials in unencrypted files:
 - Git does not cache credentials by default, but some configurations store credentials in plaintext.
 
 This environment mitigates these attack vectors by:
-1. Fetching credentials from 1Password at runtime;
-2. Injecting them via environment variables in ephemeral subshells;
-3. Ensuring credentials exist only for the duration of the command;
-4. Preventing unencrypted credentials from persisting on disk.
+1. Fetching credentials from 1Password at runtime
+2. Injecting them via environment variables in ephemeral subshells
+3. Ensuring credentials exist only for the duration of the command
+4. Preventing unencrypted credentials from persisting on disk
 
 ## How It Works
 
@@ -61,21 +61,21 @@ The environment's wrapper functions for `git`, `gh`, and `aws`:
 The environment uses two approaches for credential handling:
 
 #### `op run` (for `gh` and `aws`)
-- Executes commands in an ephemeral subshell
-- Retrieves secrets directly from 1Password and exports them as environment variables
-- Keeps credentials only within the subshell and destroys them when the command finishes
+- Executes commands in an ephemeral subshell;
+- Retrieves secrets directly from 1Password and exports them as environment variables;
+- Keeps credentials only within the subshell and destroys them when the command finishes.
 
 #### `op read` (for `git`)
-- Reads the token directly from 1Password
-- Creates a temporary script (via `GIT_ASKPASS`) that outputs the token when Git requests it
-- Uses trap-based cleanup mechanisms to remove temporary files
+- Reads the token directly from 1Password;
+- Creates a temporary script (via `GIT_ASKPASS`) that outputs the token when Git requests it;
+- Uses trap-based cleanup mechanisms to remove temporary files.
 
 ### Environment-Aware Authentication Flow
 
 The environment adapts its authentication method based on context:
 
-- [Local Development](#local-development-setup) - Uses interactive authentication with persistent session tokens
-- [CI/CD](#cicd-integration) - Uses non-interactive authentication with service accounts
+- [Local Development](#local-development-setup) - Uses interactive authentication with persistent session tokens;
+- [CI/CD](#cicd-integration) - Uses non-interactive authentication with service accounts.
 
 ## Quick Start
 
@@ -374,7 +374,7 @@ authenticate_1password() {
 
 4. **Create CI platform-specific configuration** for your workflows:
 
-**CircleCI Example:**
+**CircleCI:**
 ```yaml
 version: 2.1
 jobs:
@@ -395,7 +395,7 @@ jobs:
       # Your other steps that use the secure credentials
 ```
 
-**GitLab CI Example:**
+**GitLab CI:**
 ```yaml
 stages:
   - build
@@ -415,16 +415,17 @@ build:
     OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN}
 ```
 
-By extending the environment detection and authentication logic this way, you can make your secure credential management work seamlessly across any CI/CD platform.
+By extending environment detection and auth logic this way, you get (more) secure credential management that works across virtually any CI/CD platform.
 
 ## About Flox
 
-[Flox](https://flox.dev) combines package and environment management, building on [Nix](https://github.com/NixOS/nix). It offers:
+[Flox](https://flox.dev) combines package and environment management, building on [Nix](https://github.com/NixOS/nix). It gives you the benefits of Nix but with a friendly, intuitive UX:
 
-- Declarative environment specifications in TOML format
-- Content-addressed package storage that prevents conflicts
-- Consistent environments across development, CI, and production
-- Access to over 150,000 packages from [Nixpkgs](https://github.com/NixOS/nixpkgs)
+- Declarative environment specifications in TOML format;
+- Content-addressed package storage that prevents conflicts;
+- Reproducible environments that travel across development, CI, and production;
+- Deterministic builds that generate identical outputs for the same architecture, regardless of build environment
+- Access to over 150,000 packages—and millions of historical package-version combinations—from [Nixpkgs](https://github.com/NixOS/nixpkgs)
 
 ## Prerequisites
 

@@ -425,7 +425,7 @@ By extending environment detection and auth logic this way, you get (more) secur
 - **Content-addressed storage**. Multiple versions of packages with conflicting dependencies can coexist in the same environment;
 - **Reproducibility**. The same environment can be reused across development, CI, and production;
 - **Deterministic builds**. The same inputs always produce identical outputs for a given architecture, regardless of when or where builds occur;
-- **World's largest collection of packages**. Access to over 150,000 packages—and millions of historical package-version combinations—from [Nixpkgs](https://github.com/NixOS/nixpkgs).
+- **World's largest collection of packages**. Access to over 150,000 packages—and millions of package-version combinations—from [Nixpkgs](https://github.com/NixOS/nixpkgs).
 
 ## Prerequisites
 

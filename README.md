@@ -14,6 +14,8 @@ Packages are sourced from the Flox Catalog, which uses [Nixpkgs](https://github.
 
 Content-addressing prevents conflicts and enables multiple versions of the same dependency to coexist in the same Flox environment. Because Flox environments are instantiated from a declarative specification rather than system state, they evaluate the same way across local development, CI, and production.
 
+Packages defined in this environment include:
+
 - **1Password CLI** (`op`): Used for secure credential management
 - **AWS CLI 2** (`aws`): For interacting with AWS services
 - **GitHub CLI** (`gh`): For interacting with GitHub repositories
@@ -21,6 +23,8 @@ Content-addressing prevents conflicts and enables multiple versions of the same 
 - **Gum**: A tool for glamorous shell scripts
 - **Bat**: A cat clone with syntax highlighting and Git integration
 - **Curl**: Command-line tool for transferring data with URLs
+
+You can run **`flox edit`** at any time to view and/or alter the Flox environment's declarative configuration. You can also install packages imperatively using **`flox install <package_name>`**.
 
 ## Security Benefits ✅
 

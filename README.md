@@ -57,16 +57,16 @@ Both methods ensure credentials are never persistently stored in unencrypted fil
 
 ### Environment-Aware Authentication Flow
 
-The environment now intelligently detects whether it's running in a local development environment or a CI/CD environment and adapts its authentication method accordingly:
+This Flox environment dynamically detects whether it's running in a local context or a CI/CD environment and adapts its authentication method accordingly:
 
-#### Local Development Environment
+#### Local Development
 1. On environment activation, you'll authenticate with 1Password interactively
 2. Your 1Password session token is stored both in memory and in a local file for persistence
 3. When you run a wrapped command, it fetches the required credentials from 1Password
 4. The credentials exist only for the duration of the command execution
 5. If authentication fails, you'll get up to 3 retry attempts
 
-#### CI/CD Environment
+#### CI/CD
 1. The environment detects that it's running in CI (currently supports GitHub Actions)
 2. Authentication occurs non-interactively using 1Password service accounts
 3. The 1Password session token is kept exclusively in environment variables (no file I/O)

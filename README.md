@@ -2,6 +2,10 @@
 
 This Flox environment provides a secure way to manage credentials for common developer tools by integrating with 1Password. It prevents credentials from being stored in unencrypted files on disk, significantly reducing the risk of credential leakage. It supports both local development and CI/CD environments.
 
+## Dependencies
+
+The only required software dependency is the [Flox CLI](https://flox.dev/get). See **Compatible Systems**, below, for platform dependencies.
+
 ## Installed Packages
 
 - **1Password CLI** (`op`): Used for secure credential management

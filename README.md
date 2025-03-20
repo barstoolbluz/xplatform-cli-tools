@@ -16,7 +16,7 @@ To install:
    - macOS (Intel): Download the `.pkg` installer
    - macOS (ARM/Apple Silicon): Download the `.pkg` installer;
 
-3. Follow your OS's standard installation procedure for the downloaded package
+3. Follow your OS's standard installation procedure to install the downloaded package
 
 ## About Flox
 

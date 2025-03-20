@@ -421,11 +421,11 @@ By extending environment detection and auth logic this way, you get (more) secur
 
 [Flox](https://flox.dev) combines package and environment management, building on [Nix](https://github.com/NixOS/nix). It gives you the benefits of Nix but with a friendly, intuitive UX:
 
-- Declarative environment specifications in TOML format;
-- Content-addressed package storage that prevents conflicts;
-- Reproducible environments that travel across development, CI, and production;
-- Deterministic builds that generate identical outputs for the same architecture, regardless of build environment
-- Access to over 150,000 packages—and millions of historical package-version combinations—from [Nixpkgs](https://github.com/NixOS/nixpkgs)
+- **Declarative environments**. Software packages, variables, services, etc. are defined in simple, human-readable TOML format;
+- **Content-addressed storage**. Multiple versions of packages with conflicting dependencies can coexist in the same environment;
+- **Reproducibility**. The same environment can be reused across development, CI, and production;
+- **Deterministic builds**. The same inputs always produce identical outputs for a given architecture, regardless of when or where builds occur;
+- **World's largest collection of packages**. Access to over 150,000 packages—and millions of historical package-version combinations—from [Nixpkgs](https://github.com/NixOS/nixpkgs).
 
 ## Prerequisites
 

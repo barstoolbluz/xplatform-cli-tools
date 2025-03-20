@@ -25,7 +25,7 @@ This environment implements a more secure pattern for managing credentials in cr
 - AWS CLI (`aws`)
 - Additional packages (see [Installed Packages](#installed-packages))
 
-All tools are declaratively defined in TOML in the environment's manifest ([see About Flox](#about-flox)) and are automatically installed when you activate the environment—no manual installation needed. The environment wraps these tools with secure credential handling, and you can easily extend this pattern to other CLI tools ([see Extensibility](#extensibility)).
+All tools are declaratively defined in TOML in the environment's manifest ([see About Flox](#about-flox)) and are automatically installed when you activate the environment—no manual installation needed. The environment uses shell function wrappers to intercept calls to these tools and handle credentials securely, and you can easily extend this pattern to other CLI tools ([see Extensibility](#extensibility)).
 
 **Compatible systems:**
 - Apple Silicon Macs (aarch64-darwin)

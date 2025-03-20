@@ -10,9 +10,9 @@ The only required software dependency is the [Flox CLI](https://flox.dev/get). S
 
 Flox is a combined package and environment manager that builds on [Nix](https://github.com/NixOS/nix).
 
-The Flox Catalog uses [Nixpkgs](https://github.com/NixOS/nixpkgs) as its upstream. It includes more than 150,000 packages, along with millions of historical package-version combinations.
+The Flox Catalog uses [Nixpkgs](https://github.com/NixOS/nixpkgs) as its upstream. It includes more than 150,000 packages, along with millions of package-version combinations.
 
-Unlike Nix, which expresses package definitions in its own functional [Nix expression language](https://nix.dev/manual/nix/2.24/language/), Flox defines software dependencies using standard TOML.
+Unlike Nix, which expresses package definitions in its own functional [language](https://nix.dev/manual/nix/2.24/language/), Flox defines dependencies using standard TOML.
 
 Each package is stored in the [Nix store](https://nix.dev/manual/nix/2.24/store/) (`/nix/store`) under a [content-addressed](https://nix.dev/manual/nix/2.24/glossary#gloss-content-address) [store path](https://nix.dev/manual/nix/2.24/glossary#gloss-store-path) derived from its build inputs. Content-addressing prevents conflicts, enabling multiple versions of the same dependency to coexist in a single Flox environment. Flox environments are instantiated from a declarative specification rather than system-installed packages, so they evaluate the same way across local development, CI, and production.
 

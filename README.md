@@ -52,28 +52,28 @@ The environment implements wrapper functions for `git`, `gh`, and `aws` that:
 
 1. Extract credentials from 1Password at runtime;
 2. Pass these credentials to the underlying commands securely;
-3. Clean up any temporary files after execution;
+3. Clean up any temporary files after execution.
 
 ### Authentication Methods
 
 Two approaches are used for credential handling:
 
 #### `op run` (for `gh` and `aws`)
-- Executes commands in an ephemeral subshell
-- Retrieves secrets directly from 1Password and exports them as environment variables
-- Credentials exist only within the subshell and are destroyed when the command finishes
+- Executes commands in an ephemeral subshell;
+- Retrieves secrets directly from 1Password and exports them as environment variables;
+- Credentials exist only within the subshell and are destroyed when the command finishes.
 
 #### `op read` (for `git`)
-- Directly reads the token from 1Password
-- Creates a temporary script (via `GIT_ASKPASS`) that outputs the token when Git requests it
-- Uses trap-based cleanup mechanisms to remove temporary files
+- Directly reads the token from 1Password;
+- Creates a temporary script (via `GIT_ASKPASS`) that outputs the token when Git requests it;
+- Uses trap-based cleanup mechanisms to remove temporary files.
 
 ### Environment-Aware Authentication Flow
 
 The environment adapts its authentication method based on context:
 
-- [Local Development](#local-development-setup) - Interactive authentication with persistent session tokens
-- [CI/CD](#cicd-integration) - Non-interactive authentication using service accounts
+- [Local Development](#local-development-setup) - Interactive authentication with persistent session tokens;
+- [CI/CD](#cicd-integration) - Non-interactive authentication using service accounts.
 
 ## Quick Start
 
@@ -91,16 +91,16 @@ You'll need to customize environment variables to match your 1Password vault str
 
 ```toml
 [vars]
-# 1password github config
-OP_GITHUB_VAULT = "vault"           # Name of 1Password vault containing GitHub tokens
-OP_GITHUB_TOKEN_ITEM = "token_item"           # Name of the item storing GitHub token
-OP_GITHUB_TOKEN_FIELD = "token_field"         # Field name containing the GitHub token
+# 1Password GitHub config
+OP_GITHUB_VAULT = "vault"                  # Name of 1Password vault containing GitHub tokens
+OP_GITHUB_TOKEN_ITEM = "token_item"        # Name of the item storing GitHub token
+OP_GITHUB_TOKEN_FIELD = "token_field"      # Field name containing the GitHub token
 
-# 1password aws config
-OP_AWS_VAULT = "vault"              # Name of 1Password vault containing AWS credentials
-OP_AWS_CREDENTIALS_ITEM = "aws_creds"     # Name of the item storing AWS credentials
-OP_AWS_USERNAME_FIELD = "username"      # Field name for AWS access key ID
-OP_AWS_CREDENTIALS_FIELD = "credentials" # Field name for AWS secret access key
+# 1Password AWS config
+OP_AWS_VAULT = "vault"                     # Name of 1Password vault containing AWS credentials
+OP_AWS_CREDENTIALS_ITEM = "aws_creds"      # Name of the item storing AWS credentials
+OP_AWS_USERNAME_FIELD = "username"         # Field name for AWS access key ID
+OP_AWS_CREDENTIALS_FIELD = "credentials"   # Field name for AWS secret access key
 ```
 
 **Important:** You must modify these environment variables in your `manifest.toml` to match your own 1Password vault structure.

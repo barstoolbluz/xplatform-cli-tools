@@ -6,13 +6,15 @@ This Flox environment provides a secure way to manage credentials for common dev
 
 The only required software dependency is the [Flox CLI](https://flox.dev/get). See **Compatible Systems**, below, for platform dependencies.
 
-## Installed Packages
+## About Flox
 
 Software packages are made available within the activated Flox environment, which runs in a subshell and inherits the local user’s permissions.
 
 Packages are sourced from the Flox Catalog, which uses [Nixpkgs](https://github.com/NixOS/nixpkgs) as its upstream. Flox itself builds on [Nix](https://github.com/NixOS/nix), although Flox environments define their dependencies using standard TOML, with each package installed immutably in the [Nix store](https://nix.dev/manual/nix/2.24/store/) (`/nix/store`) using a [content-addressed](https://nix.dev/manual/nix/2.24/glossary#gloss-content-address) [store path](https://nix.dev/manual/nix/2.24/glossary#gloss-store-path) that's derived from its build inputs. 
 
 Content-addressing prevents conflicts and enables multiple versions of the same dependency to coexist in the same Flox environment. Because Flox environments are instantiated from a declarative specification rather than system state, they evaluate the same way across local development, CI, and production.
+
+## Installed Packages
 
 Packages defined in this environment include:
 

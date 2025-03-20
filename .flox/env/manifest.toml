@@ -1,0 +1,345 @@
+# This is a Flox environment manifest.
+# Visit flox.dev/docs/concepts/manifest/
+# or see flox-edit(1), manifest.toml(5) for more information.
+version = 1
+
+[install]
+_1password.pkg-path = "_1password"
+awscli2.pkg-path = "awscli2"
+gh.pkg-path = "gh"
+gitFull.pkg-path = "gitFull"
+gum.pkg-path = "gum"
+bat.pkg-path = "bat"
+curl.pkg-path = "curl"
+
+[vars]
+# 1password github config
+OP_GITHUB_VAULT = "1password"           # Name of 1Password vault containing GitHub tokens
+OP_GITHUB_TOKEN_ITEM = "repo"    # Name of the item storing GitHub token
+OP_GITHUB_TOKEN_FIELD = "token"               # Field name containing the GitHub token
+
+# 1password aws config
+OP_AWS_VAULT = "1password"              # Name of 1Password vault containing AWS credentials
+OP_AWS_CREDENTIALS_ITEM = "awskeyz"   # Name of the item storing AWS credentials
+OP_AWS_USERNAME_FIELD = "username"            # Field name for AWS access key ID
+OP_AWS_CREDENTIALS_FIELD = "credential"      # Field name for AWS secret access key
+
+[hook]
+on-activate = '''
+# 1Password authentication with CI support
+detect_environment() {
+  # GitHub Actions detection
+  if [[ -n "$GITHUB_ACTIONS" ]]; then
+    echo "github_actions"
+    return 0
+  fi
+  
+  # Add detection for other CI platforms here if needed:
+  # Example:
+  # if [[ -n "$CIRCLECI" ]]; then
+  #   echo "circle_ci"
+  #   return 0
+  # fi
+  
+  # No CI detected - we're local
+  echo "local"
+  return 0
+}
+
+authenticate_1password() {
+  SESSION_FILE="$HOME/.config/op/1password-session.token"
+  
+  # Check if we already have a valid session (file-based for local, env var for CI)
+  local env=$(detect_environment)
+  
+  if [[ "$env" == "local" ]]; then
+    # Local environment - check for file-based token
+    if [[ -f "$SESSION_FILE" ]] && OP_SESSION_TOKEN=$(cat "$SESSION_FILE") && op whoami --session "$OP_SESSION_TOKEN" >/dev/null 2>&1; then
+      echo "Using existing 1Password session from file"
+      export OP_SESSION_TOKEN
+      return 0
+    fi
+    
+    # Local environment - interactive authentication
+    echo "Local environment detected. Authenticating interactively..."
+    for i in {1..3}; do
+      if OP_SESSION_TOKEN=$(op signin --raw 2>/dev/null); then
+        mkdir -p "$(dirname "$SESSION_FILE")"
+        echo "$OP_SESSION_TOKEN" > "$SESSION_FILE"
+        chmod 700 "$SESSION_FILE"
+        export OP_SESSION_TOKEN
+        return 0
+      fi
+      [[ $i -eq 3 ]] && { echo "Authentication failed after 3 attempts."; return 1; } || echo "Attempt $i failed."
+    done
+  else
+    # CI environment - check for existing token in env var
+    if [[ -n "$OP_SESSION_TOKEN" ]] && op whoami --session "$OP_SESSION_TOKEN" >/dev/null 2>&1; then
+      echo "Using existing 1Password session token from environment"
+      return 0
+    fi
+    
+    # CI environment (GitHub Actions)
+    echo "CI environment detected: $env"
+    
+    if [[ -z "$OP_SERVICE_ACCOUNT_TOKEN" ]]; then
+      echo "Error: OP_SERVICE_ACCOUNT_TOKEN is not set. Required for CI authentication."
+      return 1
+    fi
+    
+    echo "Authenticating with 1Password service account..."
+    if OP_SESSION_TOKEN=$(op signin --raw --service-account-token "$OP_SERVICE_ACCOUNT_TOKEN" 2>/dev/null); then
+      export OP_SESSION_TOKEN
+      echo "Successfully authenticated with 1Password service account"
+      return 0
+    else
+      echo "Failed to authenticate with 1Password service account"
+      return 1
+    fi
+  fi
+  
+  return 1
+}
+
+# Authenticate with 1Password
+authenticate_1password
+
+# create shell-specific wrapper files
+mkdir -p "${FLOX_ENV_CACHE}/shell"
+
+# bash wrapper file
+cat > "${FLOX_ENV_CACHE}/shell/wrapper.bash" << 'EOBASH'
+# load 1password session token - check env var first, then file
+[[ -z "$OP_SESSION_TOKEN" && -f "$HOME/.config/op/1password-session.token" ]] && export OP_SESSION_TOKEN=$(cat "$HOME/.config/op/1password-session.token")
+
+# gh wrapper function
+gh() { 
+  if [[ -n "$OP_SESSION_TOKEN" ]]; then
+    op run --session "$OP_SESSION_TOKEN" --env-file <(echo "GITHUB_TOKEN=op://$OP_GITHUB_VAULT/$OP_GITHUB_TOKEN_ITEM/$OP_GITHUB_TOKEN_FIELD") -- gh "$@"
+  else
+    echo "Error: No 1Password session found. Please authenticate first."
+    return 1
+  fi
+}
+
+# git wrapper function
+git() {
+  if [[ "$1" =~ ^(push|pull|fetch|clone|remote)$ ]] && [[ -n "$OP_SESSION_TOKEN" ]]; then
+    token=$(op read "op://$OP_GITHUB_VAULT/$OP_GITHUB_TOKEN_ITEM/$OP_GITHUB_TOKEN_FIELD" --session "$OP_SESSION_TOKEN" 2>/dev/null)
+    if [[ -n "$token" ]]; then
+      askpass=$(mktemp)
+      
+      # Set up cleanup trap for the temporary file
+      trap 'rm -f "$askpass"' EXIT INT TERM
+      
+      echo -e "#!/bin/sh\necho $token" > "$askpass"
+      chmod 700 "$askpass"
+      GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 command git -c credential.helper= "$@"
+      status=$?
+      
+      # Manually remove the file and clear the trap
+      rm -f "$askpass"
+      trap - EXIT INT TERM
+      
+      return $status
+    fi
+  fi
+  command git "$@"
+}
+
+# aws wrapper function
+aws() { 
+  if [[ -n "$OP_SESSION_TOKEN" ]]; then
+    op run --session "$OP_SESSION_TOKEN" --env-file <(echo -e "AWS_ACCESS_KEY_ID=op://$OP_AWS_VAULT/$OP_AWS_CREDENTIALS_ITEM/$OP_AWS_USERNAME_FIELD\nAWS_SECRET_ACCESS_KEY=op://$OP_AWS_VAULT/$OP_AWS_CREDENTIALS_ITEM/$OP_AWS_CREDENTIALS_FIELD") -- aws "$@"
+  else
+    echo "Error: No 1Password session found. Please authenticate first."
+    return 1
+  fi
+}
+EOBASH
+chmod +x "${FLOX_ENV_CACHE}/shell/wrapper.bash"
+
+# zsh wrapper file - with zsh-specific syntax
+cat > "${FLOX_ENV_CACHE}/shell/wrapper.zsh" << 'EOZSH'
+# load 1password session token - check env var first, then file
+[[ -z "$OP_SESSION_TOKEN" && -f "$HOME/.config/op/1password-session.token" ]] && export OP_SESSION_TOKEN=$(cat "$HOME/.config/op/1password-session.token")
+
+# gh wrapper function
+function gh() { 
+  if [[ -n "$OP_SESSION_TOKEN" ]]; then
+    op run --session "$OP_SESSION_TOKEN" --env-file =(echo "GITHUB_TOKEN=op://$OP_GITHUB_VAULT/$OP_GITHUB_TOKEN_ITEM/$OP_GITHUB_TOKEN_FIELD") -- gh "$@"
+  else
+    echo "Error: No 1Password session found. Please authenticate first."
+    return 1
+  fi
+}
+
+# git wrapper function
+function git() {
+  if [[ "$1" =~ ^(push|pull|fetch|clone|remote)$ ]] && [[ -n "$OP_SESSION_TOKEN" ]]; then
+    token=$(op read "op://$OP_GITHUB_VAULT/$OP_GITHUB_TOKEN_ITEM/$OP_GITHUB_TOKEN_FIELD" --session "$OP_SESSION_TOKEN" 2>/dev/null)
+    if [[ -n "$token" ]]; then
+      askpass=$(mktemp)
+      
+      # Set up cleanup trap for the temporary file (zsh syntax)
+      trap 'rm -f "$askpass"' EXIT INT TERM
+      
+      # Write token to file with more secure permissions
+      print -n "#!/bin/sh\necho $token" > "$askpass"
+      chmod 700 "$askpass"
+      GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 command git -c credential.helper= "$@"
+      status=$?
+      
+      # Manually remove the file and clear the trap
+      rm -f "$askpass"
+      trap - EXIT INT TERM
+      
+      return $status
+    fi
+  fi
+  command git "$@"
+}
+
+# aws wrapper function
+function aws() { 
+  if [[ -n "$OP_SESSION_TOKEN" ]]; then
+    op run --session "$OP_SESSION_TOKEN" --env-file =(echo "AWS_ACCESS_KEY_ID=op://$OP_AWS_VAULT/$OP_AWS_CREDENTIALS_ITEM/$OP_AWS_USERNAME_FIELD\nAWS_SECRET_ACCESS_KEY=op://$OP_AWS_VAULT/$OP_AWS_CREDENTIALS_ITEM/$OP_AWS_CREDENTIALS_FIELD") -- aws "$@"
+  else
+    echo "Error: No 1Password session found. Please authenticate first."
+    return 1
+  fi
+}
+EOZSH
+chmod +x "${FLOX_ENV_CACHE}/shell/wrapper.zsh"
+
+# fish wrapper file
+cat > "${FLOX_ENV_CACHE}/shell/wrapper.fish" << 'EOFISH'
+# load 1password session token - check env var first, then file
+if test -z "$OP_SESSION_TOKEN"; and test -f "$HOME/.config/op/1password-session.token"
+    set -gx OP_SESSION_TOKEN (cat "$HOME/.config/op/1password-session.token")
+end
+
+# gh wrapper function
+function gh
+    if test -n "$OP_SESSION_TOKEN"
+        op run --session "$OP_SESSION_TOKEN" --env-file (echo "GITHUB_TOKEN=op://$OP_GITHUB_VAULT/$OP_GITHUB_TOKEN_ITEM/$OP_GITHUB_TOKEN_FIELD" | psub) -- gh $argv
+    else
+        echo "Error: No 1Password session found. Please authenticate first."
+        return 1
+    end
+end
+
+# git wrapper function
+function git
+    if contains -- $argv[1] push pull fetch clone remote; and test -n "$OP_SESSION_TOKEN"
+        set -l token (op read "op://$OP_GITHUB_VAULT/$OP_GITHUB_TOKEN_ITEM/$OP_GITHUB_TOKEN_FIELD" --session "$OP_SESSION_TOKEN" 2>/dev/null)
+        if test -n "$token"
+            # Create temporary file
+            set -l askpass (mktemp)
+            
+            # Define cleanup function
+            function cleanup --on-event fish_exit --on-signal INT --on-signal TERM
+                rm -f $askpass
+            end
+            
+            echo -e "#!/bin/sh\necho $token" > "$askpass"
+            chmod 700 "$askpass"
+            env GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 command git -c credential.helper= $argv
+            set -l git_status $status
+            
+            # Cleanup temporary file and function
+            rm -f "$askpass"
+            functions -e cleanup
+            
+            return $git_status
+        end
+    end
+    command git $argv
+end
+
+# aws wrapper function
+function aws
+    if test -n "$OP_SESSION_TOKEN"
+        op run --session "$OP_SESSION_TOKEN" --env-file (echo -e "AWS_ACCESS_KEY_ID=op://$OP_AWS_VAULT/$OP_AWS_CREDENTIALS_ITEM/$OP_AWS_USERNAME_FIELD\nAWS_SECRET_ACCESS_KEY=op://$OP_AWS_VAULT/$OP_AWS_CREDENTIALS_ITEM/$OP_AWS_CREDENTIALS_FIELD" | psub) -- aws $argv
+    else
+        echo "Error: No 1Password session found. Please authenticate first."
+        return 1
+    end
+end
+EOFISH
+chmod +x "${FLOX_ENV_CACHE}/shell/wrapper.fish"
+
+# curl README.md from github repo
+get_help() {
+  local fail_silently=${1:-true}
+  local readme_path="${FLOX_ENV_CACHE}/README.md"
+  local readme_url="https://raw.githubusercontent.com/barstoolbluz/floxenvs/main/xplatform-cli-tools/README.md"
+  
+  if $fail_silently; then
+    curl -s "$readme_url" -o "$readme_path" >/dev/null 2>&1 || true
+  else
+    curl -s "$readme_url" -o "$readme_path"
+  fi
+}
+
+# informational message; comment-out or delete 'show_help' under # runnit to disable
+show_help() {
+    gum style \
+        --border rounded \
+        --border-foreground 240 \
+        --padding "1 2" \
+        --margin "1 0" \
+        --width 96 \
+        "$(gum style --foreground 141 --bold 'This is a  F l o x  environment for AWS and GitHub CLI')
+
+👉  Getting Help:
+    $(gum style --foreground 212 'help')        Display this help message
+
+👉  Integrated Tools:
+    $(gum style --foreground 212 'aws')         AWS CLI with 1Password credentials
+    $(gum style --foreground 212 'gh')          GitHub CLI with 1Password auth
+    $(gum style --foreground 212 'git')         Git with 1Password auth for remote operations
+
+👉  Usage Tips:
+    • Use $(gum style --foreground 212 'aws'), $(gum style --foreground 212 'gh'), and $(gum style --foreground 212 'git') interactively as normal
+    • In scripts, source the shell wrapper files from:
+      $(gum style --foreground 212 "\$FLOX_ENV_CACHE/shell/wrapper.[bash|zsh|fish]")
+    • Bypass wrappers with $(gum style --foreground 212 'command aws'), $(gum style --foreground 212 'command gh'), or $(gum style --foreground 212 'command git')
+    
+👉  Authentication:
+    • Fetches credentials securely from 1Password
+    • Authentication happens automatically when needed"
+
+    echo ""
+}
+
+# runnit
+get_help
+show_help
+'''
+
+[profile]
+bash = '''
+# Source the 1Password wrapper functions
+[[ -f "${FLOX_ENV_CACHE}/shell/wrapper.sh" ]] && source "${FLOX_ENV_CACHE}/shell/wrapper.bash"
+
+help() { [[ -f "$FLOX_ENV_CACHE/README.md" ]] && bat --paging=always --style=plain "$FLOX_ENV_CACHE/README.md"; }
+'''
+
+zsh = '''
+# Source the 1Password wrapper functions
+[[ -f "${FLOX_ENV_CACHE}/shell/wrapper.sh" ]] && source "${FLOX_ENV_CACHE}/shell/wrapper.zsh"
+
+help() { [[ -f "$FLOX_ENV_CACHE/README.md" ]] && bat --paging=always --style=plain "$FLOX_ENV_CACHE/README.md"; }
+'''
+
+fish = '''
+# Source the 1Password wrapper functions
+test -f "$FLOX_ENV_CACHE/shell/wrapper.fish" && source "$FLOX_ENV_CACHE/shell/wrapper.fish"
+
+function help; test -f "$FLOX_ENV_CACHE/README.md" && bat --paging=always --style=plain "$FLOX_ENV_CACHE/README.md"; end
+'''
+
+# Settings for compatible systems
+[options]
+systems = ["aarch64-darwin", "aarch64-linux", "x86_64-darwin", "x86_64-linux"]

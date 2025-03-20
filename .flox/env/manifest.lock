@@ -1,0 +1,932 @@
+{
+  "lockfile-version": 1,
+  "manifest": {
+    "version": 1,
+    "install": {
+      "_1password": {
+        "pkg-path": "_1password"
+      },
+      "awscli2": {
+        "pkg-path": "awscli2"
+      },
+      "bat": {
+        "pkg-path": "bat"
+      },
+      "curl": {
+        "pkg-path": "curl"
+      },
+      "gh": {
+        "pkg-path": "gh"
+      },
+      "gitFull": {
+        "pkg-path": "gitFull"
+      },
+      "gum": {
+        "pkg-path": "gum"
+      }
+    },
+    "vars": {
+      "OP_AWS_CREDENTIALS_FIELD": "credential",
+      "OP_AWS_CREDENTIALS_ITEM": "awskeyz",
+      "OP_AWS_USERNAME_FIELD": "username",
+      "OP_AWS_VAULT": "1password",
+      "OP_GITHUB_TOKEN_FIELD": "token",
+      "OP_GITHUB_TOKEN_ITEM": "repo",
+      "OP_GITHUB_VAULT": "1password"
+    },
+    "hook": {
+      "on-activate": "# 1Password authentication with CI support\ndetect_environment() {\n  # GitHub Actions detection\n  if [[ -n \"$GITHUB_ACTIONS\" ]]; then\n    echo \"github_actions\"\n    return 0\n  fi\n  \n  # Add detection for other CI platforms here if needed:\n  # Example:\n  # if [[ -n \"$CIRCLECI\" ]]; then\n  #   echo \"circle_ci\"\n  #   return 0\n  # fi\n  \n  # No CI detected - we're local\n  echo \"local\"\n  return 0\n}\n\nauthenticate_1password() {\n  SESSION_FILE=\"$HOME/.config/op/1password-session.token\"\n  \n  # Check if we already have a valid session (file-based for local, env var for CI)\n  local env=$(detect_environment)\n  \n  if [[ \"$env\" == \"local\" ]]; then\n    # Local environment - check for file-based token\n    if [[ -f \"$SESSION_FILE\" ]] && OP_SESSION_TOKEN=$(cat \"$SESSION_FILE\") && op whoami --session \"$OP_SESSION_TOKEN\" >/dev/null 2>&1; then\n      echo \"Using existing 1Password session from file\"\n      export OP_SESSION_TOKEN\n      return 0\n    fi\n    \n    # Local environment - interactive authentication\n    echo \"Local environment detected. Authenticating interactively...\"\n    for i in {1..3}; do\n      if OP_SESSION_TOKEN=$(op signin --raw 2>/dev/null); then\n        mkdir -p \"$(dirname \"$SESSION_FILE\")\"\n        echo \"$OP_SESSION_TOKEN\" > \"$SESSION_FILE\"\n        chmod 700 \"$SESSION_FILE\"\n        export OP_SESSION_TOKEN\n        return 0\n      fi\n      [[ $i -eq 3 ]] && { echo \"Authentication failed after 3 attempts.\"; return 1; } || echo \"Attempt $i failed.\"\n    done\n  else\n    # CI environment - check for existing token in env var\n    if [[ -n \"$OP_SESSION_TOKEN\" ]] && op whoami --session \"$OP_SESSION_TOKEN\" >/dev/null 2>&1; then\n      echo \"Using existing 1Password session token from environment\"\n      return 0\n    fi\n    \n    # CI environment (GitHub Actions)\n    echo \"CI environment detected: $env\"\n    \n    if [[ -z \"$OP_SERVICE_ACCOUNT_TOKEN\" ]]; then\n      echo \"Error: OP_SERVICE_ACCOUNT_TOKEN is not set. Required for CI authentication.\"\n      return 1\n    fi\n    \n    echo \"Authenticating with 1Password service account...\"\n    if OP_SESSION_TOKEN=$(op signin --raw --service-account-token \"$OP_SERVICE_ACCOUNT_TOKEN\" 2>/dev/null); then\n      export OP_SESSION_TOKEN\n      echo \"Successfully authenticated with 1Password service account\"\n      return 0\n    else\n      echo \"Failed to authenticate with 1Password service account\"\n      return 1\n    fi\n  fi\n  \n  return 1\n}\n\n# Authenticate with 1Password\nauthenticate_1password\n\n# create shell-specific wrapper files\nmkdir -p \"${FLOX_ENV_CACHE}/shell\"\n\n# bash wrapper file\ncat > \"${FLOX_ENV_CACHE}/shell/wrapper.bash\" << 'EOBASH'\n# load 1password session token - check env var first, then file\n[[ -z \"$OP_SESSION_TOKEN\" && -f \"$HOME/.config/op/1password-session.token\" ]] && export OP_SESSION_TOKEN=$(cat \"$HOME/.config/op/1password-session.token\")\n\n# gh wrapper function\ngh() { \n  if [[ -n \"$OP_SESSION_TOKEN\" ]]; then\n    op run --session \"$OP_SESSION_TOKEN\" --env-file <(echo \"GITHUB_TOKEN=op://$OP_GITHUB_VAULT/$OP_GITHUB_TOKEN_ITEM/$OP_GITHUB_TOKEN_FIELD\") -- gh \"$@\"\n  else\n    echo \"Error: No 1Password session found. Please authenticate first.\"\n    return 1\n  fi\n}\n\n# git wrapper function\ngit() {\n  if [[ \"$1\" =~ ^(push|pull|fetch|clone|remote)$ ]] && [[ -n \"$OP_SESSION_TOKEN\" ]]; then\n    token=$(op read \"op://$OP_GITHUB_VAULT/$OP_GITHUB_TOKEN_ITEM/$OP_GITHUB_TOKEN_FIELD\" --session \"$OP_SESSION_TOKEN\" 2>/dev/null)\n    if [[ -n \"$token\" ]]; then\n      askpass=$(mktemp)\n      \n      # Set up cleanup trap for the temporary file\n      trap 'rm -f \"$askpass\"' EXIT INT TERM\n      \n      echo -e \"#!/bin/sh\\necho $token\" > \"$askpass\"\n      chmod 700 \"$askpass\"\n      GIT_ASKPASS=\"$askpass\" GIT_TERMINAL_PROMPT=0 command git -c credential.helper= \"$@\"\n      status=$?\n      \n      # Manually remove the file and clear the trap\n      rm -f \"$askpass\"\n      trap - EXIT INT TERM\n      \n      return $status\n    fi\n  fi\n  command git \"$@\"\n}\n\n# aws wrapper function\naws() { \n  if [[ -n \"$OP_SESSION_TOKEN\" ]]; then\n    op run --session \"$OP_SESSION_TOKEN\" --env-file <(echo -e \"AWS_ACCESS_KEY_ID=op://$OP_AWS_VAULT/$OP_AWS_CREDENTIALS_ITEM/$OP_AWS_USERNAME_FIELD\\nAWS_SECRET_ACCESS_KEY=op://$OP_AWS_VAULT/$OP_AWS_CREDENTIALS_ITEM/$OP_AWS_CREDENTIALS_FIELD\") -- aws \"$@\"\n  else\n    echo \"Error: No 1Password session found. Please authenticate first.\"\n    return 1\n  fi\n}\nEOBASH\nchmod +x \"${FLOX_ENV_CACHE}/shell/wrapper.bash\"\n\n# zsh wrapper file - with zsh-specific syntax\ncat > \"${FLOX_ENV_CACHE}/shell/wrapper.zsh\" << 'EOZSH'\n# load 1password session token - check env var first, then file\n[[ -z \"$OP_SESSION_TOKEN\" && -f \"$HOME/.config/op/1password-session.token\" ]] && export OP_SESSION_TOKEN=$(cat \"$HOME/.config/op/1password-session.token\")\n\n# gh wrapper function\nfunction gh() { \n  if [[ -n \"$OP_SESSION_TOKEN\" ]]; then\n    op run --session \"$OP_SESSION_TOKEN\" --env-file =(echo \"GITHUB_TOKEN=op://$OP_GITHUB_VAULT/$OP_GITHUB_TOKEN_ITEM/$OP_GITHUB_TOKEN_FIELD\") -- gh \"$@\"\n  else\n    echo \"Error: No 1Password session found. Please authenticate first.\"\n    return 1\n  fi\n}\n\n# git wrapper function\nfunction git() {\n  if [[ \"$1\" =~ ^(push|pull|fetch|clone|remote)$ ]] && [[ -n \"$OP_SESSION_TOKEN\" ]]; then\n    token=$(op read \"op://$OP_GITHUB_VAULT/$OP_GITHUB_TOKEN_ITEM/$OP_GITHUB_TOKEN_FIELD\" --session \"$OP_SESSION_TOKEN\" 2>/dev/null)\n    if [[ -n \"$token\" ]]; then\n      askpass=$(mktemp)\n      \n      # Set up cleanup trap for the temporary file (zsh syntax)\n      trap 'rm -f \"$askpass\"' EXIT INT TERM\n      \n      # Write token to file with more secure permissions\n      print -n \"#!/bin/sh\\necho $token\" > \"$askpass\"\n      chmod 700 \"$askpass\"\n      GIT_ASKPASS=\"$askpass\" GIT_TERMINAL_PROMPT=0 command git -c credential.helper= \"$@\"\n      status=$?\n      \n      # Manually remove the file and clear the trap\n      rm -f \"$askpass\"\n      trap - EXIT INT TERM\n      \n      return $status\n    fi\n  fi\n  command git \"$@\"\n}\n\n# aws wrapper function\nfunction aws() { \n  if [[ -n \"$OP_SESSION_TOKEN\" ]]; then\n    op run --session \"$OP_SESSION_TOKEN\" --env-file =(echo \"AWS_ACCESS_KEY_ID=op://$OP_AWS_VAULT/$OP_AWS_CREDENTIALS_ITEM/$OP_AWS_USERNAME_FIELD\\nAWS_SECRET_ACCESS_KEY=op://$OP_AWS_VAULT/$OP_AWS_CREDENTIALS_ITEM/$OP_AWS_CREDENTIALS_FIELD\") -- aws \"$@\"\n  else\n    echo \"Error: No 1Password session found. Please authenticate first.\"\n    return 1\n  fi\n}\nEOZSH\nchmod +x \"${FLOX_ENV_CACHE}/shell/wrapper.zsh\"\n\n# fish wrapper file\ncat > \"${FLOX_ENV_CACHE}/shell/wrapper.fish\" << 'EOFISH'\n# load 1password session token - check env var first, then file\nif test -z \"$OP_SESSION_TOKEN\"; and test -f \"$HOME/.config/op/1password-session.token\"\n    set -gx OP_SESSION_TOKEN (cat \"$HOME/.config/op/1password-session.token\")\nend\n\n# gh wrapper function\nfunction gh\n    if test -n \"$OP_SESSION_TOKEN\"\n        op run --session \"$OP_SESSION_TOKEN\" --env-file (echo \"GITHUB_TOKEN=op://$OP_GITHUB_VAULT/$OP_GITHUB_TOKEN_ITEM/$OP_GITHUB_TOKEN_FIELD\" | psub) -- gh $argv\n    else\n        echo \"Error: No 1Password session found. Please authenticate first.\"\n        return 1\n    end\nend\n\n# git wrapper function\nfunction git\n    if contains -- $argv[1] push pull fetch clone remote; and test -n \"$OP_SESSION_TOKEN\"\n        set -l token (op read \"op://$OP_GITHUB_VAULT/$OP_GITHUB_TOKEN_ITEM/$OP_GITHUB_TOKEN_FIELD\" --session \"$OP_SESSION_TOKEN\" 2>/dev/null)\n        if test -n \"$token\"\n            # Create temporary file\n            set -l askpass (mktemp)\n            \n            # Define cleanup function\n            function cleanup --on-event fish_exit --on-signal INT --on-signal TERM\n                rm -f $askpass\n            end\n            \n            echo -e \"#!/bin/sh\\necho $token\" > \"$askpass\"\n            chmod 700 \"$askpass\"\n            env GIT_ASKPASS=\"$askpass\" GIT_TERMINAL_PROMPT=0 command git -c credential.helper= $argv\n            set -l git_status $status\n            \n            # Cleanup temporary file and function\n            rm -f \"$askpass\"\n            functions -e cleanup\n            \n            return $git_status\n        end\n    end\n    command git $argv\nend\n\n# aws wrapper function\nfunction aws\n    if test -n \"$OP_SESSION_TOKEN\"\n        op run --session \"$OP_SESSION_TOKEN\" --env-file (echo -e \"AWS_ACCESS_KEY_ID=op://$OP_AWS_VAULT/$OP_AWS_CREDENTIALS_ITEM/$OP_AWS_USERNAME_FIELD\\nAWS_SECRET_ACCESS_KEY=op://$OP_AWS_VAULT/$OP_AWS_CREDENTIALS_ITEM/$OP_AWS_CREDENTIALS_FIELD\" | psub) -- aws $argv\n    else\n        echo \"Error: No 1Password session found. Please authenticate first.\"\n        return 1\n    end\nend\nEOFISH\nchmod +x \"${FLOX_ENV_CACHE}/shell/wrapper.fish\"\n\n# curl README.md from github repo\nget_help() {\n  local fail_silently=${1:-true}\n  local readme_path=\"${FLOX_ENV_CACHE}/README.md\"\n  local readme_url=\"https://raw.githubusercontent.com/barstoolbluz/floxenvs/main/xplatform-cli-tools/README.md\"\n  \n  if $fail_silently; then\n    curl -s \"$readme_url\" -o \"$readme_path\" >/dev/null 2>&1 || true\n  else\n    curl -s \"$readme_url\" -o \"$readme_path\"\n  fi\n}\n\n# informational message; comment-out or delete 'show_help' under # runnit to disable\nshow_help() {\n    gum style \\\n        --border rounded \\\n        --border-foreground 240 \\\n        --padding \"1 2\" \\\n        --margin \"1 0\" \\\n        --width 96 \\\n        \"$(gum style --foreground 141 --bold 'This is a  F l o x  environment for AWS and GitHub CLI')\n\n👉  Getting Help:\n    $(gum style --foreground 212 'help')        Display this help message\n\n👉  Integrated Tools:\n    $(gum style --foreground 212 'aws')         AWS CLI with 1Password credentials\n    $(gum style --foreground 212 'gh')          GitHub CLI with 1Password auth\n    $(gum style --foreground 212 'git')         Git with 1Password auth for remote operations\n\n👉  Usage Tips:\n    • Use $(gum style --foreground 212 'aws'), $(gum style --foreground 212 'gh'), and $(gum style --foreground 212 'git') interactively as normal\n    • In scripts, source the shell wrapper files from:\n      $(gum style --foreground 212 \"\\$FLOX_ENV_CACHE/shell/wrapper.[bash|zsh|fish]\")\n    • Bypass wrappers with $(gum style --foreground 212 'command aws'), $(gum style --foreground 212 'command gh'), or $(gum style --foreground 212 'command git')\n    \n👉  Authentication:\n    • Fetches credentials securely from 1Password\n    • Authentication happens automatically when needed\"\n\n    echo \"\"\n}\n\n# runnit\nget_help\nshow_help\n"
+    },
+    "profile": {
+      "bash": "# Source the 1Password wrapper functions\n[[ -f \"${FLOX_ENV_CACHE}/shell/wrapper.sh\" ]] && source \"${FLOX_ENV_CACHE}/shell/wrapper.bash\"\n\nhelp() { [[ -f \"$FLOX_ENV_CACHE/README.md\" ]] && bat --paging=always --style=plain \"$FLOX_ENV_CACHE/README.md\"; }\n",
+      "zsh": "# Source the 1Password wrapper functions\n[[ -f \"${FLOX_ENV_CACHE}/shell/wrapper.sh\" ]] && source \"${FLOX_ENV_CACHE}/shell/wrapper.zsh\"\n\nhelp() { [[ -f \"$FLOX_ENV_CACHE/README.md\" ]] && bat --paging=always --style=plain \"$FLOX_ENV_CACHE/README.md\"; }\n",
+      "fish": "# Source the 1Password wrapper functions\ntest -f \"$FLOX_ENV_CACHE/shell/wrapper.fish\" && source \"$FLOX_ENV_CACHE/shell/wrapper.fish\"\n\nfunction help; test -f \"$FLOX_ENV_CACHE/README.md\" && bat --paging=always --style=plain \"$FLOX_ENV_CACHE/README.md\"; end\n"
+    },
+    "options": {
+      "systems": [
+        "aarch64-darwin",
+        "aarch64-linux",
+        "x86_64-darwin",
+        "x86_64-linux"
+      ],
+      "allow": {
+        "licenses": []
+      },
+      "semver": {}
+    }
+  },
+  "packages": [
+    {
+      "attr_path": "_1password",
+      "broken": false,
+      "derivation": "/nix/store/9290cl1fzxz3wzxwlwiyw5q1rnv78f3n-1password-cli-2.30.3.drv",
+      "description": "1Password command-line tool",
+      "install_id": "_1password",
+      "license": "Unfree",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "1password-cli-2.30.3",
+      "pname": "_1password",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": true,
+      "version": "2.30.3",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/n0jgflq9hkylgfvxfrc9ris4lgbza738-1password-cli-2.30.3"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "_1password",
+      "broken": false,
+      "derivation": "/nix/store/wwa0j53z5afs65r8sl9vh8689rwzjffz-1password-cli-2.30.3.drv",
+      "description": "1Password command-line tool",
+      "install_id": "_1password",
+      "license": "Unfree",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "1password-cli-2.30.3",
+      "pname": "_1password",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": true,
+      "version": "2.30.3",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/w2qm1zj4hip9xijsnvjin2fiwqx4kdz9-1password-cli-2.30.3"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "_1password",
+      "broken": false,
+      "derivation": "/nix/store/3avy67fd3w6aaxwfls2rip1s0mmmfj40-1password-cli-2.30.3.drv",
+      "description": "1Password command-line tool",
+      "install_id": "_1password",
+      "license": "Unfree",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "1password-cli-2.30.3",
+      "pname": "_1password",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": true,
+      "version": "2.30.3",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/c00fjp4hykbgy2ddpqg8rgpc3k1mjc3z-1password-cli-2.30.3"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "_1password",
+      "broken": false,
+      "derivation": "/nix/store/bqwdcv4i0kyahwspgfw8gxisrgqzcxgf-1password-cli-2.30.3.drv",
+      "description": "1Password command-line tool",
+      "install_id": "_1password",
+      "license": "Unfree",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "1password-cli-2.30.3",
+      "pname": "_1password",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": true,
+      "version": "2.30.3",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/dl9afsjn3qqzdd90k15l4qvkrqyca08y-1password-cli-2.30.3"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "awscli2",
+      "broken": false,
+      "derivation": "/nix/store/6hxmxdjcix1vq8cj9wj9pqskl1r7ci7s-awscli2-2.24.16.drv",
+      "description": "Unified tool to manage your AWS services",
+      "install_id": "awscli2",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "awscli2-2.24.16",
+      "pname": "awscli2",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.24.16",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dist": "/nix/store/qxnx0fn30s29c2afbhwxqwhhzn42ldgv-awscli2-2.24.16-dist",
+        "out": "/nix/store/jbj2zsvc51vvjamvbak8wrz869b9pd86-awscli2-2.24.16"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "awscli2",
+      "broken": false,
+      "derivation": "/nix/store/gd1xyf8sjix967h65f8dy94vqyvqszy5-awscli2-2.24.16.drv",
+      "description": "Unified tool to manage your AWS services",
+      "install_id": "awscli2",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "awscli2-2.24.16",
+      "pname": "awscli2",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.24.16",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dist": "/nix/store/jxzsifn0xqsihjd3lx6qiv68md6jq9g6-awscli2-2.24.16-dist",
+        "out": "/nix/store/yq14qwp9r63hcclrfj3v2xq34ll2lcnd-awscli2-2.24.16"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "awscli2",
+      "broken": false,
+      "derivation": "/nix/store/fxhl4sq14qq40i419cxv6lx5bv7rhyb3-awscli2-2.24.16.drv",
+      "description": "Unified tool to manage your AWS services",
+      "install_id": "awscli2",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "awscli2-2.24.16",
+      "pname": "awscli2",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.24.16",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dist": "/nix/store/cpf5dj3zhyrkavmc5lpmm26vn00c7blc-awscli2-2.24.16-dist",
+        "out": "/nix/store/v8zq6r3p3a7p14qfi9lkb48cdxxldqr5-awscli2-2.24.16"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "awscli2",
+      "broken": false,
+      "derivation": "/nix/store/7xpmxkydqgnd3p3i27fygi0n1h8658m4-awscli2-2.24.16.drv",
+      "description": "Unified tool to manage your AWS services",
+      "install_id": "awscli2",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "awscli2-2.24.16",
+      "pname": "awscli2",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.24.16",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dist": "/nix/store/i5rcmal4qgm0g9ix51sqkifqvykih2xk-awscli2-2.24.16-dist",
+        "out": "/nix/store/sgn7sbrvvslvnbaydy2h5lpf9d8f1a1w-awscli2-2.24.16"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "bat",
+      "broken": false,
+      "derivation": "/nix/store/zhmvn4k9rvj845k1hxlim1ckpvq1m803-bat-0.25.0.drv",
+      "description": "Cat(1) clone with syntax highlighting and Git integration",
+      "install_id": "bat",
+      "license": "[ Apache-2.0, MIT ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "bat-0.25.0",
+      "pname": "bat",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.25.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/ai2vv20xlpmnn5q7f01pw9nyna7104bl-bat-0.25.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "bat",
+      "broken": false,
+      "derivation": "/nix/store/8pcjsf4xpfbrwxza64kcgqg3rnzny9hm-bat-0.25.0.drv",
+      "description": "Cat(1) clone with syntax highlighting and Git integration",
+      "install_id": "bat",
+      "license": "[ Apache-2.0, MIT ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "bat-0.25.0",
+      "pname": "bat",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.25.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/ypvcjk8hznpb56azpjd6jm8a9jv7fp7g-bat-0.25.0"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "bat",
+      "broken": false,
+      "derivation": "/nix/store/4ifj0gnd15010pb558c0fjqz3c7zb8gy-bat-0.25.0.drv",
+      "description": "Cat(1) clone with syntax highlighting and Git integration",
+      "install_id": "bat",
+      "license": "[ Apache-2.0, MIT ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "bat-0.25.0",
+      "pname": "bat",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.25.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/yixxzkspjsfrh88nykmzy9vfg6zcwjqc-bat-0.25.0"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "bat",
+      "broken": false,
+      "derivation": "/nix/store/2zpmc09iijrsjyq6jxsq980s76fahihj-bat-0.25.0.drv",
+      "description": "Cat(1) clone with syntax highlighting and Git integration",
+      "install_id": "bat",
+      "license": "[ Apache-2.0, MIT ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "bat-0.25.0",
+      "pname": "bat",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.25.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/vf5hbnpkw8yy7q56kba8hl9cm25143cq-bat-0.25.0"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "curl",
+      "broken": false,
+      "derivation": "/nix/store/pgvbsfq3h5143bvdlhwm73dfniqqdykf-curl-8.12.1.drv",
+      "description": "Command line tool for transferring files with URL syntax",
+      "install_id": "curl",
+      "license": "curl",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "curl-8.12.1",
+      "pname": "curl",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "8.12.1",
+      "outputs_to_install": [
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/baiigsw3z45r6flc0sp3yfn2miy287cf-curl-8.12.1-bin",
+        "dev": "/nix/store/6105r6dknsdcv1bg2p7lclm7hp6vdcvi-curl-8.12.1-dev",
+        "devdoc": "/nix/store/zzr5ncacmpzxvh1vrh74iri5w630z23c-curl-8.12.1-devdoc",
+        "man": "/nix/store/rcjd846pvsdd4wkancjcnkjx29mxp9cj-curl-8.12.1-man",
+        "out": "/nix/store/j97v5hphlqwlifqhyipw7jj32a9fkhmp-curl-8.12.1"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "curl",
+      "broken": false,
+      "derivation": "/nix/store/5hk16qr9w26k7382jm2iwjszjbbqv0k6-curl-8.12.1.drv",
+      "description": "Command line tool for transferring files with URL syntax",
+      "install_id": "curl",
+      "license": "curl",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "curl-8.12.1",
+      "pname": "curl",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "8.12.1",
+      "outputs_to_install": [
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/mky4ls4yyinks01394shqhk6alhn9xh6-curl-8.12.1-bin",
+        "debug": "/nix/store/0mn2mfyqjb3ybrp8sx1m0wadbvsl02z4-curl-8.12.1-debug",
+        "dev": "/nix/store/75li6f1pfd8w00ilffaqywpgn910z88l-curl-8.12.1-dev",
+        "devdoc": "/nix/store/mp9ny9x3608fbf3zcq8rqlc6lxhxjj49-curl-8.12.1-devdoc",
+        "man": "/nix/store/m18cmv4nl58giw3zalrlldw40ksil6kr-curl-8.12.1-man",
+        "out": "/nix/store/y1f35w8psglsf3scfwwr58mv4ai2j8p0-curl-8.12.1"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "curl",
+      "broken": false,
+      "derivation": "/nix/store/qcxc9gqd371yy2b6vdgci0z6s3ms8p6a-curl-8.12.1.drv",
+      "description": "Command line tool for transferring files with URL syntax",
+      "install_id": "curl",
+      "license": "curl",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "curl-8.12.1",
+      "pname": "curl",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "8.12.1",
+      "outputs_to_install": [
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/0r4yc6516kqylzccq9f35gni14hlpa3x-curl-8.12.1-bin",
+        "dev": "/nix/store/ylr090jisy6rcp6h7gz4j5s79xdga61y-curl-8.12.1-dev",
+        "devdoc": "/nix/store/dmmqlds05glry24fppkgnd6mkgbv13fx-curl-8.12.1-devdoc",
+        "man": "/nix/store/ahx6ha7fr19g4km7ckwg8m18bzrszccn-curl-8.12.1-man",
+        "out": "/nix/store/p2xnwb804lsv8azrkqrvs4ng7ivbaqmd-curl-8.12.1"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "curl",
+      "broken": false,
+      "derivation": "/nix/store/258sxbzbxpgzgvy6pbr30akcx5l9m49i-curl-8.12.1.drv",
+      "description": "Command line tool for transferring files with URL syntax",
+      "install_id": "curl",
+      "license": "curl",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "curl-8.12.1",
+      "pname": "curl",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "8.12.1",
+      "outputs_to_install": [
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/ipyzblpplw889rdvmm7sw8r3kf24p6c2-curl-8.12.1-bin",
+        "debug": "/nix/store/c8dh5156hf1ikfnhihiiv97bj67fzkh0-curl-8.12.1-debug",
+        "dev": "/nix/store/adpdg2yhykxgm13r8nj9xqbj676vxv3n-curl-8.12.1-dev",
+        "devdoc": "/nix/store/m1kmbias4l6g6w5jifc0q1wc2sn7hj7c-curl-8.12.1-devdoc",
+        "man": "/nix/store/kf2jk2p8bf3lvasxy5pmib6irgs28rl2-curl-8.12.1-man",
+        "out": "/nix/store/xbxq9d2npfdb6954wdc5aa7skf2bpdxs-curl-8.12.1"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gh",
+      "broken": false,
+      "derivation": "/nix/store/wf7fhmqp98gpmxcg60928cnnfr1v0lql-gh-2.68.1.drv",
+      "description": "GitHub CLI tool",
+      "install_id": "gh",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "gh-2.68.1",
+      "pname": "gh",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.68.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/qbam4w81gg5fvs4dh02mlqbvk9ycgdrn-gh-2.68.1"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gh",
+      "broken": false,
+      "derivation": "/nix/store/6hc24qcnkpm9hip78v3n0bb77np6042d-gh-2.68.1.drv",
+      "description": "GitHub CLI tool",
+      "install_id": "gh",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "gh-2.68.1",
+      "pname": "gh",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.68.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/y54l6mdjb6dfjgc3144ycdi2ahmjaiba-gh-2.68.1"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gh",
+      "broken": false,
+      "derivation": "/nix/store/2f0lk3fmk14i7jkkpjjx4qbzz9v15zzs-gh-2.68.1.drv",
+      "description": "GitHub CLI tool",
+      "install_id": "gh",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "gh-2.68.1",
+      "pname": "gh",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.68.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/r1qmxbxn6ila24ahh94w0h3f07dkjpsn-gh-2.68.1"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gh",
+      "broken": false,
+      "derivation": "/nix/store/n0485b380h5cl3iywfbqv3k04v7a6gp8-gh-2.68.1.drv",
+      "description": "GitHub CLI tool",
+      "install_id": "gh",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "gh-2.68.1",
+      "pname": "gh",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.68.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/xnx0zdzqyrl07hslrf0r6dc95rvi1sb8-gh-2.68.1"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gitFull",
+      "broken": false,
+      "derivation": "/nix/store/62bc2157kg8bsi4j7qw1vmz7761h32x4-git-with-svn-2.48.1.drv",
+      "description": "Distributed version control system",
+      "install_id": "gitFull",
+      "license": "GPL-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "git-with-svn-2.48.1",
+      "pname": "gitFull",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.48.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "doc": "/nix/store/99nkxx8bq6619kls645y1d50y90bqh5r-git-with-svn-2.48.1-doc",
+        "out": "/nix/store/1pdqk9yfgmz9k7zg86sa4f7gp8ryl1v2-git-with-svn-2.48.1"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gitFull",
+      "broken": false,
+      "derivation": "/nix/store/jr8i5sgph4pfrhkbv3bxfwfin95h1lwk-git-with-svn-2.48.1.drv",
+      "description": "Distributed version control system",
+      "install_id": "gitFull",
+      "license": "GPL-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "git-with-svn-2.48.1",
+      "pname": "gitFull",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.48.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "debug": "/nix/store/r4sm1krxiamyc13449fq9jrs4qjdqmlx-git-with-svn-2.48.1-debug",
+        "doc": "/nix/store/mvbw2g3x08w3v4mykqim0jdsjz7p0iaj-git-with-svn-2.48.1-doc",
+        "out": "/nix/store/fybqzkgch7dbb0z2cla842klvn1a1vns-git-with-svn-2.48.1"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gitFull",
+      "broken": false,
+      "derivation": "/nix/store/vwv1bk5y8wi4bng98hgb4vxhg5plmbp0-git-with-svn-2.48.1.drv",
+      "description": "Distributed version control system",
+      "install_id": "gitFull",
+      "license": "GPL-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "git-with-svn-2.48.1",
+      "pname": "gitFull",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.48.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "doc": "/nix/store/wdm5lvdykrp4k1drmv8c063dkgq7mspq-git-with-svn-2.48.1-doc",
+        "out": "/nix/store/q0b9p6rvcrvvvsrz8x9pxf3x83a6zv7c-git-with-svn-2.48.1"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gitFull",
+      "broken": false,
+      "derivation": "/nix/store/63c30vq7qdpsvq3wjg2b4vzdnx54inid-git-with-svn-2.48.1.drv",
+      "description": "Distributed version control system",
+      "install_id": "gitFull",
+      "license": "GPL-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "git-with-svn-2.48.1",
+      "pname": "gitFull",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.48.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "debug": "/nix/store/d5dpxwrrmpqfmyars0n5qmk15mgb7r89-git-with-svn-2.48.1-debug",
+        "doc": "/nix/store/6z8898pgpfgppshsrry746hydhb2cjna-git-with-svn-2.48.1-doc",
+        "out": "/nix/store/ihhfkvb3girckp8ah8vzh05j33jzyw1w-git-with-svn-2.48.1"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gum",
+      "broken": false,
+      "derivation": "/nix/store/czwl846byk8sxy1g69r6pqr78n870awp-gum-0.16.0.drv",
+      "description": "Tasty Bubble Gum for your shell",
+      "install_id": "gum",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "gum-0.16.0",
+      "pname": "gum",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.16.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/kwkfj9ifihlfzv7damvf0x42w1l904ld-gum-0.16.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gum",
+      "broken": false,
+      "derivation": "/nix/store/nxng3g50n73yvw5akm3nw5g38k1kilm3-gum-0.16.0.drv",
+      "description": "Tasty Bubble Gum for your shell",
+      "install_id": "gum",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "gum-0.16.0",
+      "pname": "gum",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.16.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/fflgnfjyizrfp3kb9kg1rb13zh8iqgpa-gum-0.16.0"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gum",
+      "broken": false,
+      "derivation": "/nix/store/9bdpw33mminvyq64n5p1qw9gql3b2fga-gum-0.16.0.drv",
+      "description": "Tasty Bubble Gum for your shell",
+      "install_id": "gum",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "gum-0.16.0",
+      "pname": "gum",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.16.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/854g6bmylzpaz7s1xdccfq9x2xkx6fcc-gum-0.16.0"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gum",
+      "broken": false,
+      "derivation": "/nix/store/z0lngxwv48b41x4pyq5qp9lv33c2lss5-gum-0.16.0.drv",
+      "description": "Tasty Bubble Gum for your shell",
+      "install_id": "gum",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "name": "gum-0.16.0",
+      "pname": "gum",
+      "rev": "6607cf789e541e7873d40d3a8f7815ea92204f32",
+      "rev_count": 767267,
+      "rev_date": "2025-03-13T07:39:42Z",
+      "scrape_date": "2025-03-14T00:31:05Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.16.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/hn1dl52063dlljmzjlx0cw1f59yk5r2n-gum-0.16.0"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    }
+  ]
+}

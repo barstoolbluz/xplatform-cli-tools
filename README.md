@@ -19,7 +19,7 @@
 
 ## Overview
 
-This environment integrates with 1Password to create a more secure pattern for managing credentials in cross-platform workflows. Instead of storing credentials in unencrypted files on disk, it fetches them at runtime and retains them only for the duration of the command.
+This environment integrates with 1Password to create a more secure pattern for managing credentials in cross-platform workflows. Instead of storing credentials in unencrypted files on disk, it fetches them at runtime and keeps them only for the duration of the command.
 
 **Built-in CLI Tools:**
 - Git (`git`)

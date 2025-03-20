@@ -35,12 +35,12 @@ All tools are declaratively defined in TOML in the environment's manifest ([see 
 
 ## Security Benefits ✅
 
-Many development tools store credentials in unencrypted files:
-- GitHub CLI stores tokens in `~/.config/gh/hosts.yml`
-- AWS CLI stores credentials in `~/.aws/credentials`
-- Git may cache credentials in plaintext in some configurations
+Many popular CLI tools store credentials in unencrypted files:
+- GitHub CLI stores tokens in `~/.config/gh/hosts.yml`;
+- AWS CLI stores credentials in `~/.aws/credentials`;
+- Git does not cache credentials by default, but some configurations store credentials in plaintext.
 
-This environment mitigates these attack vectors by:
+This environment is designed to mitigate these attack vectors by:
 1. Fetching credentials from 1Password at runtime;
 2. Injecting them via environment variables in ephemeral subshells;
 3. Ensuring credentials exist only for the duration of the command;

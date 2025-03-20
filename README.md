@@ -8,9 +8,13 @@ The only required software dependency is the [Flox CLI](https://flox.dev/get). S
 
 ## About Flox
 
-Flox is a combined package and environment manager that builds on [Nix](https://github.com/NixOS/nix) Packages are sourced from the Flox Catalog, which uses [Nixpkgs](https://github.com/NixOS/nixpkgs) as its upstream. Unlike Nix, which expresses package definitions in its own functional language, Flox environments define software dependencies using standard TOML.
+Flox is a combined package and environment manager that builds on [Nix](https://github.com/NixOS/nix).
 
-Each package is installed immutably in the [Nix store](https://nix.dev/manual/nix/2.24/store/) (`/nix/store`) using a [content-addressed](https://nix.dev/manual/nix/2.24/glossary#gloss-content-address) [store path](https://nix.dev/manual/nix/2.24/glossary#gloss-store-path) that's derived from its build inputs. Content-addressing prevents conflicts and enables multiple versions of the same dependency to coexist in the same Flox environment. Because Flox environments are instantiated from a declarative specification rather than system state, they evaluate the same way across local development, CI, and production.
+The Flox Catalog uses [Nixpkgs](https://github.com/NixOS/nixpkgs) as its upstream. It includes more than 150,000 packages, along with millions of historical package-version combinations.
+
+Unlike Nix, which expresses package definitions in its own functional [Nix expression language](https://nix.dev/manual/nix/2.24/language/), Flox defines software dependencies using standard TOML.
+
+Flox installs packages immutably in the [Nix store](https://nix.dev/manual/nix/2.24/store/) (`/nix/store`), storing each package under a [content-addressed](https://nix.dev/manual/nix/2.24/glossary#gloss-content-address) [store path](https://nix.dev/manual/nix/2.24/glossary#gloss-store-path) derived from its build inputs. The Nix store's support for content-addressing prevents conflicts and enables multiple versions of the same dependency to coexist in the same Flox environment. Because Flox environments are instantiated from a declarative specification rather than system-installed packages, they evaluate the same way across local development, CI, and production.
 
 ## Installed Packages
 

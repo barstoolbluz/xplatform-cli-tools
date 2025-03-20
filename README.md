@@ -4,7 +4,9 @@ This Flox environment provides a secure way to manage credentials for common dev
 
 ## Installation and Dependencies
 
-The only required software dependency is the [Flox CLI](https://flox.dev/docs/. To install:
+The only required software dependency is the [Flox CLI](https://flox.dev/docs/).
+
+To install:
 
 1. Visit the Flox [download page](https://flox.dev/get)
 2. Download the appropriate package for your system:

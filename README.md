@@ -10,6 +10,8 @@
 - [CI/CD Integration](#cicd-integration)
 - [Shell Compatibility](#shell-compatibility)
 - [Extensibility](#extensibility)
+  - [Extending to Other CLI Tools](#extending-to-other-cli-tools)
+  - [Extending to Other CI Environments](#extending-to-other-ci-environments)
 - [About Flox](#about-flox)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
@@ -17,7 +19,7 @@
 
 ## Overview
 
-This environment implements a more secure pattern for managing credentials in cross-platform workflows by integrating with 1Password. Rather than storing credentials in unencrypted files on disk, it fetches them at runtime and keeps them only for the duration of the command.
+This environment integrates with 1Password to create a more secure pattern for managing credentials in cross-platform workflows. Instead of storing credentials in unencrypted files on disk, it fetches them at runtime and retains them only for the duration of the command.
 
 **Built-in CLI Tools:**
 - Git (`git`)
@@ -25,7 +27,7 @@ This environment implements a more secure pattern for managing credentials in cr
 - AWS CLI (`aws`)
 - Additional packages (see [Installed Packages](#installed-packages))
 
-All tools are declaratively defined in TOML in the environment's manifest ([see About Flox](#about-flox)) and are automatically installed when you activate the environment—no manual installation needed. The environment uses shell function wrappers to intercept calls to these tools and handle credentials securely. Its design is such that you can easily extend this pattern to include other CLI tools ([see Extensibility](#extensibility)).
+The environment's manifest defines all tools declaratively in TOML format ([see About Flox](#about-flox)), and they install automatically when you activate the environment—no manual installation needed. Shell function wrappers intercept calls to these tools and handle credentials securely. You can easily extend this pattern to include other CLI tools ([see Extensibility](#extensibility)).
 
 **Compatible systems:**
 - Apple Silicon Macs (aarch64-darwin)
@@ -40,7 +42,7 @@ Many popular CLI tools store credentials in unencrypted files:
 - AWS CLI stores credentials in `~/.aws/credentials`;
 - Git does not cache credentials by default, but some configurations store credentials in plaintext.
 
-This environment is designed to mitigate these attack vectors by:
+This environment mitigates these attack vectors by:
 1. Fetching credentials from 1Password at runtime;
 2. Injecting them via environment variables in ephemeral subshells;
 3. Ensuring credentials exist only for the duration of the command;
@@ -48,32 +50,32 @@ This environment is designed to mitigate these attack vectors by:
 
 ## How It Works
 
-The environment implements wrapper functions for `git`, `gh`, and `aws` that:
+The environment's wrapper functions for `git`, `gh`, and `aws`:
 
 1. Extract credentials from 1Password at runtime;
-2. Pass these credentials to the underlying commands securely;
+2. Pass these credentials securely to the underlying commands;
 3. Clean up any temporary files after execution.
 
 ### Authentication Methods
 
-Two approaches are used for credential handling:
+The environment uses two approaches for credential handling:
 
 #### `op run` (for `gh` and `aws`)
-- Executes commands in an ephemeral subshell;
-- Retrieves secrets directly from 1Password and exports them as environment variables;
-- Credentials exist only within the subshell and are destroyed when the command finishes.
+- Executes commands in an ephemeral subshell
+- Retrieves secrets directly from 1Password and exports them as environment variables
+- Keeps credentials only within the subshell and destroys them when the command finishes
 
 #### `op read` (for `git`)
-- Directly reads the token from 1Password;
-- Creates a temporary script (via `GIT_ASKPASS`) that outputs the token when Git requests it;
-- Uses trap-based cleanup mechanisms to remove temporary files.
+- Reads the token directly from 1Password
+- Creates a temporary script (via `GIT_ASKPASS`) that outputs the token when Git requests it
+- Uses trap-based cleanup mechanisms to remove temporary files
 
 ### Environment-Aware Authentication Flow
 
 The environment adapts its authentication method based on context:
 
-- [Local Development](#local-development-setup) - Interactive authentication with persistent session tokens;
-- [CI/CD](#cicd-integration) - Non-interactive authentication using service accounts.
+- [Local Development](#local-development-setup) - Uses interactive authentication with persistent session tokens
+- [CI/CD](#cicd-integration) - Uses non-interactive authentication with service accounts
 
 ## Quick Start
 
@@ -103,7 +105,7 @@ OP_AWS_USERNAME_FIELD = "username"         # Field name for AWS access key ID
 OP_AWS_CREDENTIALS_FIELD = "credentials"   # Field name for AWS secret access key
 ```
 
-**Important:** You must modify these environment variables in your `manifest.toml` to match your own 1Password vault structure.
+**Important:** Modify these environment variables in your `manifest.toml` to match your own 1Password vault structure.
 
 ## Usage 🛠️
 
@@ -205,7 +207,7 @@ For CI/CD environments:
        # Your other steps that use the secure credentials
    ```
 
-The environment will automatically detect that it's running in GitHub Actions and use the service account token for non-interactive authentication.
+When running in GitHub Actions, the environment automatically detects the CI platform and uses the service account token for non-interactive authentication.
 
 ## Shell Compatibility
 
@@ -215,11 +217,15 @@ The environment supports three shells, each with its own wrapper script:
 - **Zsh** – `wrapper.zsh`
 - **Fish** – `wrapper.fish`
 
-Each wrapper implements proper trap-based cleanup mechanisms specific to its environment.
+Each wrapper implements shell-specific trap-based cleanup mechanisms.
 
 ## Extensibility
 
-This pattern can be extended to other CLI tools that require credentials:
+You can extend this environment in two key dimensions:
+
+### Extending to Other CLI Tools
+
+You can apply this pattern to many other CLI tools that require credentials:
 
 - Databricks CLI
 - Snowflake CLI
@@ -228,11 +234,11 @@ This pattern can be extended to other CLI tools that require credentials:
 - Terraform CLI
 - OpenStack CLI
 
-### How to Extend
+#### How to Extend CLI Tools
 
-To add support for another tool:
+To support a new tool:
 
-1. **Define environment variables** in your `manifest.toml`:
+1. **Add environment variables** to your `manifest.toml`:
 
 ```toml
 [vars]
@@ -247,7 +253,7 @@ OP_DATABRICKS_HOST_FIELD = "host"          # Field for Databricks host
 OP_DATABRICKS_TOKEN_FIELD = "token"        # Field for Databricks token
 ```
 
-2. **Create a wrapper function** in the `on-activate` hook:
+2. **Write a wrapper function** in the `on-activate` hook:
 
 ```bash
 # Example for Databricks CLI
@@ -256,18 +262,167 @@ databricks() {
 }
 ```
 
-3. **Make your wrapper environment-aware** with proper environment detection:
+3. **Add environment detection** to your wrapper function
+
+### Extending to Other CI Environments
+
+The environment already includes a modular `detect_environment()` function that can be extended to support additional CI platforms:
 
 ```bash
-# Additional code to handle CI vs local environments
+detect_environment() {
+  # GitHub Actions detection
+  if [[ -n "$GITHUB_ACTIONS" ]]; then
+    echo "github_actions"
+    return 0
+  fi
+  
+  # Add detection for other CI platforms here if needed:
+  # Example:
+  # if [[ -n "$CIRCLECI" ]]; then
+  #   echo "circle_ci"
+  #   return 0
+  # fi
+  
+  # No CI detected - we're local
+  echo "local"
+  return 0
+}
 ```
+
+#### How to Extend to Other CI Platforms
+
+1. **Identify the environment variable** that uniquely identifies your CI platform:
+   - CircleCI: `$CIRCLECI`
+   - GitLab CI: `$GITLAB_CI`
+   - Jenkins: `$JENKINS_URL`
+   - Travis CI: `$TRAVIS`
+   - Azure DevOps: `$TF_BUILD`
+   - Buildkite: `$BUILDKITE`
+
+2. **Modify the `detect_environment()` function** to recognize the new platform:
+
+```bash
+detect_environment() {
+  # GitHub Actions detection
+  if [[ -n "$GITHUB_ACTIONS" ]]; then
+    echo "github_actions"
+    return 0
+  fi
+  
+  # CircleCI detection
+  if [[ -n "$CIRCLECI" ]]; then
+    echo "circle_ci"
+    return 0
+  fi
+  
+  # GitLab CI detection
+  if [[ -n "$GITLAB_CI" ]]; then
+    echo "gitlab_ci"
+    return 0
+  fi
+  
+  # Jenkins detection
+  if [[ -n "$JENKINS_URL" ]]; then
+    echo "jenkins"
+    return 0
+  fi
+  
+  # No CI detected - we're local
+  echo "local"
+  return 0
+}
+```
+
+3. **Customize the authentication logic** for your CI platform if needed:
+
+```bash
+authenticate_1password() {
+  SESSION_FILE="$HOME/.config/op/1password-session.token"
+  
+  # Check if we already have a valid session (file-based for local, env var for CI)
+  local env=$(detect_environment)
+  
+  if [[ "$env" == "local" ]]; then
+    # Local environment authentication logic...
+  elif [[ "$env" == "github_actions" ]]; then
+    # GitHub Actions authentication logic...
+  elif [[ "$env" == "circle_ci" ]]; then
+    # CircleCI-specific authentication logic
+    echo "CircleCI environment detected"
+    
+    if [[ -z "$OP_SERVICE_ACCOUNT_TOKEN" ]]; then
+      echo "Error: OP_SERVICE_ACCOUNT_TOKEN is not set. Required for CircleCI authentication."
+      return 1
+    fi
+    
+    # CircleCI may have specific requirements or optimizations
+    echo "Authenticating with 1Password service account for CircleCI..."
+    if OP_SESSION_TOKEN=$(op signin --raw --service-account-token "$OP_SERVICE_ACCOUNT_TOKEN" 2>/dev/null); then
+      export OP_SESSION_TOKEN
+      echo "Successfully authenticated with 1Password service account"
+      return 0
+    else
+      echo "Failed to authenticate with 1Password service account"
+      return 1
+    fi
+  elif [[ "$env" == "gitlab_ci" ]]; then
+    # GitLab CI-specific authentication logic
+    # ...
+  fi
+}
+```
+
+4. **Create CI platform-specific configuration** for your workflows:
+
+**CircleCI Example:**
+```yaml
+version: 2.1
+jobs:
+  build:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Install Flox
+          command: curl https://get.flox.dev/install | bash
+      - run:
+          name: Activate environment
+          command: |
+            export PATH="$HOME/.flox/bin:$PATH"
+            export OP_SERVICE_ACCOUNT_TOKEN=$OP_SERVICE_ACCOUNT_TOKEN
+            flox activate
+      # Your other steps that use the secure credentials
+```
+
+**GitLab CI Example:**
+```yaml
+stages:
+  - build
+
+build:
+  stage: build
+  image: ubuntu:latest
+  before_script:
+    - apt-get update && apt-get install -y curl
+    - curl https://get.flox.dev/install | bash
+    - export PATH="$HOME/.flox/bin:$PATH"
+  script:
+    - export OP_SERVICE_ACCOUNT_TOKEN=$OP_SERVICE_ACCOUNT_TOKEN
+    - flox activate
+    # Your other steps that use the secure credentials
+  variables:
+    OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN}
+```
+
+By extending the environment detection and authentication logic this way, you can make your secure credential management work seamlessly across any CI/CD platform.
 
 ## About Flox
 
-[Flox](https://flox.dev) is a combined package and environment manager that builds on [Nix](https://github.com/NixOS/nix). It provides:
+[Flox](https://flox.dev) combines package and environment management, building on [Nix](https://github.com/NixOS/nix). It offers:
 
 - Declarative environment specifications in TOML format
-- Content-addressed package storage preventing conflicts
+- Content-addressed package storage that prevents conflicts
 - Consistent environments across development, CI, and production
 - Access to over 150,000 packages from [Nixpkgs](https://github.com/NixOS/nixpkgs)
 
@@ -338,12 +493,12 @@ In CI environments, session tokens are kept exclusively in memory as environment
 
 **Security considerations:**
 
-- **Convenience vs. Security**: Caching provides convenience but creates a potential vulnerability
-- **Time-limited**: Session tokens expire after a period of inactivity (typically 30 minutes)
-- **Local storage only**: In local environments, tokens are protected with file permissions (chmod 600)
-- **CI security**: In CI environments, tokens remain in memory only and are never written to disk
+- **Convenience vs. Security**: Caching tokens offers convenience but introduces potential vulnerabilities
+- **Time-limited**: Session tokens expire after inactivity (typically 30 minutes)
+- **Local storage only**: File permissions (chmod 600) protect tokens in local environments
+- **CI security**: Tokens remain only in memory in CI environments, never written to disk
 
-This approach balances security and usability. For higher security environments, you may want to avoid caching the token.
+This approach balances security and usability. Consider avoiding token caching entirely for high-security environments.
 
 ### Installed Packages
 
@@ -357,4 +512,4 @@ This environment includes:
 - **Bat**: A cat clone with syntax highlighting
 - **Curl**: Command-line tool for transferring data
 
-You can run `flox edit` to view/modify this environment's configuration or install packages with `flox install <package_name>`.
+Run `flox edit` to view or modify this environment's configuration, or add packages with `flox install <package_name>`.

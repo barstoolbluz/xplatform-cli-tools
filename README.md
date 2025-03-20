@@ -498,10 +498,10 @@ This environment includes:
 - **1Password CLI** (`op`): For secure credential management
 - **AWS CLI 2** (`aws`): For interacting with AWS services
 - **GitHub CLI** (`gh`): For interacting with GitHub repositories
-- **Git** (full version): For version control
-- **Gum**: A tool for glamorous shell scripts
-- **Bat**: A cat clone with syntax highlighting
-- **Curl**: Command-line tool for transferring data
+- **Git** (`git`): For version control
+- **Gum** (`gum`): A tool for glamorous shell scripts
+- **Bat** (`bat`): A cat clone with syntax highlighting
+- **Curl** (`curl`): Command-line tool for transferring data
 
 Run `flox edit` to view or modify this environment's configuration, or add packages with `flox install <package_name>`.
 

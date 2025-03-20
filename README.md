@@ -40,19 +40,19 @@ Many development tools store credentials in unencrypted files:
 - AWS CLI stores credentials in `~/.aws/credentials`
 - Git may cache credentials in plaintext in some configurations
 
-This environment improves security by:
-1. Fetching credentials from 1Password at runtime
-2. Injecting them via environment variables in ephemeral subshells
-3. Ensuring credentials exist only for the duration of the command
-4. Preventing credentials from being written to disk in plaintext
+This environment mitigates these attack vectors by:
+1. Fetching credentials from 1Password at runtime;
+2. Injecting them via environment variables in ephemeral subshells;
+3. Ensuring credentials exist only for the duration of the command;
+4. Preventing unencrypted credentials from persisting on disk.
 
 ## How It Works
 
 The environment implements wrapper functions for `git`, `gh`, and `aws` that:
 
-1. Extract credentials from 1Password at runtime
-2. Pass these credentials to the underlying commands securely
-3. Clean up any temporary files after execution
+1. Extract credentials from 1Password at runtime;
+2. Pass these credentials to the underlying commands securely;
+3. Clean up any temporary files after execution;
 
 ### Authentication Methods
 

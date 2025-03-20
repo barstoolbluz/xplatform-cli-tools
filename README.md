@@ -12,10 +12,10 @@
 - [Extensibility](#extensibility)
   - [Extending to Other CLI Tools](#extending-to-other-cli-tools)
   - [Extending to Other CI Environments](#extending-to-other-ci-environments)
-- [About Flox](#about-flox)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Notes](#notes)
+- [About Flox](#about-flox)
 
 ## Overview
 
@@ -417,16 +417,6 @@ build:
 
 By extending environment detection and auth logic this way, you get (more) secure credential management that works across virtually any CI/CD platform.
 
-## About Flox
-
-[Flox](https://flox.dev) combines package and environment management, building on [Nix](https://github.com/NixOS/nix). It gives you the benefits of Nix but with a friendly, intuitive UX:
-
-- **Declarative environments**. Software packages, variables, services, etc. are defined in simple, human-readable TOML format;
-- **Content-addressed storage**. Multiple versions of packages with conflicting dependencies can coexist in the same environment;
-- **Reproducibility**. The same environment can be reused across development, CI, and production;
-- **Deterministic builds**. The same inputs always produce identical outputs for a given architecture, regardless of when or where builds occur;
-- **World's largest collection of packages**. Access to over 150,000 packages—and millions of package-version combinations—from [Nixpkgs](https://github.com/NixOS/nixpkgs).
-
 ## Prerequisites
 
 ### 1Password CLI Setup (Local Development)
@@ -514,3 +504,13 @@ This environment includes:
 - **Curl**: Command-line tool for transferring data
 
 Run `flox edit` to view or modify this environment's configuration, or add packages with `flox install <package_name>`.
+
+## About Flox
+
+[Flox](https://flox.dev) combines package and environment management, building on [Nix](https://github.com/NixOS/nix). It gives you the benefits of Nix but with a friendly, intuitive UX:
+
+- **Declarative environments**. Software packages, variables, services, etc. are defined in simple, human-readable TOML format;
+- **Content-addressed storage**. Multiple versions of packages with conflicting dependencies can coexist in the same environment;
+- **Reproducibility**. The same environment can be reused across development, CI, and production;
+- **Deterministic builds**. The same inputs always produce identical outputs for a given architecture, regardless of when or where builds occur;
+- **World's largest collection of packages**. Access to over 150,000 packages—and millions of package-version combinations—from [Nixpkgs](https://github.com/NixOS/nixpkgs).

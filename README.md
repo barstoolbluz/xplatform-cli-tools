@@ -4,7 +4,17 @@ This Flox environment provides a secure way to manage credentials for common dev
 
 ## Dependencies
 
-The only required software dependency is the [Flox CLI](https://flox.dev/get). See **Compatible Systems**, below, for platform dependencies.
+The only required software dependency is the [Flox CLI](https://flox.dev/docs/. To install:
+
+1. Visit the Flox [download page](https://flox.dev/get)
+2. Download the appropriate package for your system:
+
+Linux (Intel/x86_64): Choose either .deb or .rpm package
+Linux (ARM): Choose either .deb or .rpm package
+macOS (Intel): Download the .pkg installer
+macOS (ARM/Apple Silicon): Download the .pkg installer
+
+3. Follow your OS's standard installation procedure for the downloaded package
 
 ## About Flox
 

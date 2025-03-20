@@ -507,7 +507,7 @@ Run `flox edit` to view or modify this environment's configuration, or add packa
 
 ## About Flox
 
-[Flox](https://flox.dev) combines package and environment management, building on [Nix](https://github.com/NixOS/nix). It gives you the benefits of Nix but with a friendly, intuitive UX:
+[Flox](https://flox.dev) combines package and environment management, building on [Nix](https://github.com/NixOS/nix). It gives you the benefits of Nix but with a `git`-like syntax and a more intuitive UX:
 
 - **Declarative environments**. Software packages, variables, services, etc. are defined in simple, human-readable TOML format;
 - **Content-addressed storage**. Multiple versions of packages with conflicting dependencies can coexist in the same environment;
